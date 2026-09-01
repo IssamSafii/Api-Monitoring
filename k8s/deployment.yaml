@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oci-monitoring-api
+  labels:
+    app: oci-monitoring-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oci-monitoring-api
+  template:
+    metadata:
+      labels:
+        app: oci-monitoring-api
+    spec:
+      containers:
+        - name: oci-monitoring-api
+          image: your-registry/oci-monitoring-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5005
+          env:
+            - name: OCI_CONFIG_FILE
+              value: /home/app/.oci/config
+            - name: OCI_PROFILE
+              value: DEFAULT
+            - name: OCI_COMPARTMENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: oci-monitoring-api-config
+                  key: OCI_COMPARTMENT_ID
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5005
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5005
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          # Mount your OCI config directory or secret here.
+          # The mounted config file must reference a private key that is also mounted.
+          # volumeMounts:
+          #   - name: oci-config
+          #     mountPath: /home/app/.oci
+          #     readOnly: true
+      # volumes:
+      #   - name: oci-config
+      #     secret:
+      #       secretName: oci-api-credentials
