@@ -1,5 +1,3 @@
-# Safi Stage Monitoring Platform OCI Backend
-
 ## Architecture
 
 ```text
