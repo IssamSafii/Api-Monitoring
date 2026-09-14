@@ -5,7 +5,7 @@ Grafana
    |
    | Infinity datasource
    v
-Safi OCI Flask API
+OCI Flask API
    |
    | OCI Python SDK
    v
