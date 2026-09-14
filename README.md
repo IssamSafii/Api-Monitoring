@@ -1,134 +1,128 @@
+# OCI Monitoring API
+
+A lightweight REST API for retrieving monitoring data and resource information from Oracle Cloud Infrastructure (OCI).
+
+Built with Flask and the OCI Python SDK, the service provides normalized JSON responses for metrics, logs, compute instances, compartments, and work requests. It can be used by dashboards, internal tools, automation workflows, or any HTTP client that needs a simple interface to OCI observability data.
+
+## Features
+
+- Retrieve OCI Monitoring metrics over a configurable time range
+- Search and normalize OCI log records
+- List compute instances and accessible compartments
+- Retrieve generic and IAM work requests
+- Override the default compartment per request
+- Return consistent, integration-friendly JSON
+- Run locally, in Docker, or on Kubernetes
+- Keep OCI credentials on the backend instead of distributing them to API clients
+
 ## Architecture
 
 ```text
-Grafana
-   |
-   | Infinity datasource
-   v
-OCI Flask API
-   |
-   | OCI Python SDK
-   v
-Oracle Cloud Infrastructure
+Dashboard, application, or automation
+                 |
+                 | HTTP/JSON
+                 v
+          Flask REST API
+                 |
+                 | OCI Python SDK
+                 v
+    Oracle Cloud Infrastructure
 ```
 
-This project is a single Flask application that acts as an API gateway between Grafana Infinity and Oracle Cloud Infrastructure (OCI).
+Only the backend authenticates with OCI. API consumers communicate over HTTP and do not need direct access to the OCI configuration file or private key.
 
-Grafana does not need OCI credentials. Only this backend authenticates to OCI by reading an OCI SDK config file and profile.
+> [!IMPORTANT]
+> This service does not currently provide client authentication. Add an API gateway, reverse proxy, network policy, or another suitable access-control layer before exposing it outside a trusted network.
 
-## Endpoints
+## API Endpoints
 
-```text
-GET /health
-GET /api/metrics
-GET /api/logs
-GET /api/work-requests
-GET /api/instances
-GET /api/compartments
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/health` | Check whether the service is running |
+| `GET` | `/api/metrics` | Retrieve flattened OCI metric data points |
+| `GET` | `/api/logs` | Search and normalize OCI logs |
+| `GET` | `/api/work-requests` | List supported OCI work requests |
+| `GET` | `/api/instances` | List compute instances in a compartment |
+| `GET` | `/api/compartments` | List accessible compartments recursively |
+
+Successful data endpoints return JSON arrays. Errors use the following format:
+
+```json
+{
+  "error": "Error description"
+}
 ```
 
-All endpoints return JSON designed to be easy for Grafana Infinity tables, time series panels, and log panels to consume.
+## Requirements
 
-## OCI Authentication
+- Python 3.10 or later
+- An OCI account and SDK configuration file
+- OCI IAM permissions for each resource type the service will read
 
-The backend reads the following environment variables:
+## Configuration
 
-```bash
-export OCI_CONFIG_FILE=/home/user/.oci/config
-export OCI_PROFILE=DEFAULT
-export OCI_COMPARTMENT_ID='ocid1.compartment.oc1..example'
-```
+The application reads these environment variables:
 
-Defaults:
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `OCI_CONFIG_FILE` | No | `~/.oci/config` | Path to the OCI SDK configuration file |
+| `OCI_PROFILE` | No | `DEFAULT` | Profile to load from the configuration file |
+| `OCI_COMPARTMENT_ID` | Recommended | None | Default compartment OCID used by data endpoints |
+| `LOG_LEVEL` | No | `INFO` | Application logging level |
 
-```text
-OCI_CONFIG_FILE=~/.oci/config
-OCI_PROFILE=DEFAULT
-```
+If `OCI_COMPARTMENT_ID` is not configured, endpoints that operate on a compartment require a `compartment_id` query parameter.
 
-Do not place real OCI credentials, private keys, or real OCIDs in this repository. Mount the `.oci` directory and key material externally for local Docker or Kubernetes deployments.
-
-## Supported OCI Operations
-
-- Metrics: `oci.monitoring.MonitoringClient.summarize_metrics_data`
-- Logs: `oci.loggingsearch.LogSearchClient.search_logs`
-- Compartments: `oci.identity.IdentityClient.list_compartments`
-- Instances: `oci.core.ComputeClient.list_instances`
-- Work requests: `oci.work_requests.WorkRequestClient.list_work_requests` with an IAM fallback through `oci.identity.IdentityClient.list_iam_work_requests`
-
-### Work requests note
-
-OCI work requests are service-specific in many cases. The initial implementation tries the generic Work Requests API first and then falls back to IAM work requests. If your tenancy relies on a service-specific client for work requests, add that collector in [services/work_requests_service.py](/C:/Users/Safi/Desktop/API monitoring/oci-monitoring-api/services/work_requests_service.py).
-
-## Project Structure
-
-```text
-oci-monitoring-api/
-├── app.py
-├── requirements.txt
-├── Dockerfile
-├── .dockerignore
-├── .env.example
-├── README.md
-├── routes/
-│   ├── __init__.py
-│   ├── metrics.py
-│   ├── logs.py
-│   ├── work_requests.py
-│   ├── instances.py
-│   └── compartments.py
-├── services/
-│   ├── __init__.py
-│   ├── oci_client.py
-│   ├── metrics_service.py
-│   ├── logs_service.py
-│   ├── work_requests_service.py
-│   ├── instances_service.py
-│   └── compartments_service.py
-└── k8s/
-    ├── deployment.yaml
-    └── service.yaml
-```
+Never commit real OCIDs, OCI configuration files, private keys, or other credentials. Mount credential files at runtime and keep them outside the repository.
 
 ## Installation
 
+Clone the repository and enter the project directory:
+
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+git clone <repository-url>
+cd oci-monitoring-api
+```
+
+Create a virtual environment and install the dependencies:
+
+### Linux and macOS
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Windows PowerShell:
+### Windows PowerShell
 
 ```powershell
-python -m venv venv
-.\venv\Scripts\Activate.ps1
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-## Run Locally
+Set the OCI configuration values before starting the service:
+
+```bash
+export OCI_CONFIG_FILE="$HOME/.oci/config"
+export OCI_PROFILE="DEFAULT"
+export OCI_COMPARTMENT_ID="ocid1.compartment.oc1..example"
+```
+
+Run the application:
 
 ```bash
 python app.py
 ```
 
-The API listens on `0.0.0.0:5005`.
+The API is available at `http://localhost:5005`.
 
-## Endpoint Usage
+## Usage Examples
 
-### Health
+### Health check
 
 ```bash
 curl http://localhost:5005/health
-```
-
-Expected response:
-
-```json
-{
-  "status": "healthy",
-  "service": "Safi OCI Monitoring API"
-}
 ```
 
 ### Compartments
@@ -137,44 +131,16 @@ Expected response:
 curl http://localhost:5005/api/compartments
 ```
 
-Example response:
-
-```json
-[
-  {
-    "id": "ocid1.compartment.oc1..example",
-    "name": "production",
-    "description": "Production compartment",
-    "state": "ACTIVE",
-    "parentId": "ocid1.tenancy.oc1..example"
-  }
-]
-```
-
-### Instances
+### Compute instances
 
 ```bash
 curl http://localhost:5005/api/instances
 curl "http://localhost:5005/api/instances?compartment_id=ocid1.compartment.oc1..example"
 ```
 
-Example response:
-
-```json
-[
-  {
-    "id": "ocid1.instance.oc1..example",
-    "name": "vm-01",
-    "state": "RUNNING",
-    "shape": "VM.Standard.E4.Flex",
-    "availabilityDomain": "AD-1",
-    "compartmentId": "ocid1.compartment.oc1..example",
-    "createdAt": "2026-08-25T10:00:00Z"
-  }
-]
-```
-
 ### Metrics
+
+Without a `query` parameter, the endpoint requests a default set of compute metrics for the last 60 minutes. The default namespace is `oci_computeagent`.
 
 ```bash
 curl "http://localhost:5005/api/metrics"
@@ -183,25 +149,14 @@ curl "http://localhost:5005/api/metrics?query=MemoryUtilization%5B5m%5D.mean%28%
 curl "http://localhost:5005/api/metrics?namespace=oci_computeagent&compartment_id=ocid1.compartment.oc1..example"
 ```
 
-Example response:
+Supported query parameters:
 
-```json
-[
-  {
-    "timestamp": "2026-08-25T10:00:00Z",
-    "value": 32.5,
-    "metric": "CpuUtilization",
-    "namespace": "oci_computeagent",
-    "resourceId": "ocid1.instance.oc1..example",
-    "resourceName": "vm-01",
-    "compartmentId": "ocid1.compartment.oc1..example",
-    "dimensions": {
-      "resourceId": "ocid1.instance.oc1..example",
-      "resourceDisplayName": "vm-01"
-    }
-  }
-]
-```
+| Parameter | Description | Default |
+| --- | --- | --- |
+| `compartment_id` | Compartment OCID for the request | `OCI_COMPARTMENT_ID` |
+| `namespace` | OCI Monitoring namespace | `oci_computeagent` |
+| `query` | OCI Monitoring Query Language expression | Built-in compute metric queries |
+| `minutes` | Positive integer defining the lookback period | `60` |
 
 ### Logs
 
@@ -211,51 +166,29 @@ curl "http://localhost:5005/api/logs?query=search%20%22ocid1.compartment.oc1..ex
 curl "http://localhost:5005/api/logs?compartment_id=ocid1.compartment.oc1..example&limit=50"
 ```
 
-If `query` is omitted, the backend uses a valid OCI Logging Search query in the form:
+Supported query parameters:
+
+| Parameter | Description | Default |
+| --- | --- | --- |
+| `compartment_id` | Compartment OCID for the request | `OCI_COMPARTMENT_ID` |
+| `query` | OCI Logging Search query | Search the selected compartment by newest record |
+| `minutes` | Positive integer defining the lookback period | `60` |
+| `limit` | Positive integer defining the maximum result count | `100` |
+
+When `query` is omitted, the service uses:
 
 ```text
 search "<compartment_ocid>" | sort by datetime desc
 ```
 
-Example response:
-
-```json
-[
-  {
-    "timestamp": "2026-08-25T10:10:22Z",
-    "message": "Example log message",
-    "logId": "ocid1.log.oc1..example",
-    "logGroupId": "ocid1.loggroup.oc1..example",
-    "source": "ocid1.instance.oc1..example",
-    "entityId": "ocid1.instance.oc1..example",
-    "data": {}
-  }
-]
-```
-
-### Work Requests
+### Work requests
 
 ```bash
 curl http://localhost:5005/api/work-requests
 curl "http://localhost:5005/api/work-requests?compartment_id=ocid1.compartment.oc1..example"
 ```
 
-Example response:
-
-```json
-[
-  {
-    "id": "ocid1.workrequest.oc1..example",
-    "operationType": "CREATE_INSTANCE",
-    "status": "IN_PROGRESS",
-    "percentComplete": 50,
-    "timeAccepted": "2026-08-25T10:00:00Z",
-    "timeStarted": "2026-08-25T10:01:00Z",
-    "timeFinished": null,
-    "source": "generic"
-  }
-]
-```
+OCI work requests are often service-specific. The current implementation checks the generic Work Requests API and then IAM work requests. Additional service-specific collectors can be added in `services/work_requests_service.py`.
 
 ## Docker
 
@@ -265,62 +198,77 @@ Build the image:
 docker build -t oci-monitoring-api:latest .
 ```
 
-Run the container:
+Run the container with the local OCI configuration mounted as read-only:
 
 ```bash
 docker run --rm -p 5005:5005 \
   -e OCI_CONFIG_FILE=/home/app/.oci/config \
   -e OCI_PROFILE=DEFAULT \
   -e OCI_COMPARTMENT_ID=ocid1.compartment.oc1..example \
-  -v $HOME/.oci:/home/app/.oci:ro \
+  -v "$HOME/.oci:/home/app/.oci:ro" \
   oci-monitoring-api:latest
 ```
 
-Notes:
-
-- Do not bake OCI private keys into the image.
-- Mount the OCI config directory and key files at runtime.
+Do not copy private keys into the image. Mount the OCI configuration directory and referenced key files when the container starts.
 
 ## Kubernetes
 
-Apply the manifests:
+Update the image name and credential configuration in `k8s/deployment.yaml`, then apply the manifests:
 
 ```bash
 kubectl apply -f k8s/deployment.yaml
 kubectl apply -f k8s/service.yaml
 ```
 
-The service is a `ClusterIP` service named `oci-monitoring-api`, which makes the internal Grafana target URL possible:
+The included `ClusterIP` service exposes the API to other workloads in the cluster at:
 
 ```text
 http://oci-monitoring-api:5005
 ```
 
-Before deploying, create the image and update the image name in `k8s/deployment.yaml`.
+Before deployment, configure:
 
-Also wire either:
+- A Kubernetes `Secret` containing `OCI_COMPARTMENT_ID`
+- A read-only secret or volume containing the OCI configuration file and its referenced private key
+- The required network and client access controls for your environment
 
-- a Kubernetes `Secret` for `OCI_COMPARTMENT_ID`, and
-- a mounted secret or volume containing `/home/app/.oci/config` and the private key it references
-
-## Grafana Infinity URLs
-
-Use these URLs from Grafana inside the cluster:
+## Project Structure
 
 ```text
-http://oci-monitoring-api:5005/api/metrics
-http://oci-monitoring-api:5005/api/logs
-http://oci-monitoring-api:5005/api/work-requests
-http://oci-monitoring-api:5005/api/instances
-http://oci-monitoring-api:5005/api/compartments
+oci-monitoring-api/
+|-- app.py
+|-- requirements.txt
+|-- Dockerfile
+|-- .dockerignore
+|-- .env.example
+|-- README.md
+|-- routes/
+|   |-- compartments.py
+|   |-- instances.py
+|   |-- logs.py
+|   |-- metrics.py
+|   `-- work_requests.py
+|-- services/
+|   |-- compartments_service.py
+|   |-- instances_service.py
+|   |-- logs_service.py
+|   |-- metrics_service.py
+|   |-- oci_client.py
+|   `-- work_requests_service.py
+`-- k8s/
+    |-- deployment.yaml
+    `-- service.yaml
 ```
 
-For local development:
+## Supported OCI SDK Operations
 
-```text
-http://localhost:5005/api/metrics
-http://localhost:5005/api/logs
-http://localhost:5005/api/work-requests
-http://localhost:5005/api/instances
-http://localhost:5005/api/compartments
-```
+- Metrics: `oci.monitoring.MonitoringClient.summarize_metrics_data`
+- Logs: `oci.loggingsearch.LogSearchClient.search_logs`
+- Compartments: `oci.identity.IdentityClient.list_compartments`
+- Instances: `oci.core.ComputeClient.list_instances`
+- Work requests: `oci.work_requests.WorkRequestClient.list_work_requests`
+- IAM work requests: `oci.identity.IdentityClient.list_iam_work_requests`
+
+## Contributing
+
+Issues and pull requests are welcome. When adding an endpoint, keep responses normalized, avoid exposing sensitive OCI data, and include usage documentation.
